@@ -1,0 +1,23 @@
+{
+  "name": "scms-mern-project",
+  "version": "1.0.0",
+  "description": "Student Complaint Management System (SCMS) - MERN Stack Project for Zeal College of Engineering",
+  "main": "backend/server.js",
+  "scripts": {
+    "start": "node backend/server.js",
+    "dev": "nodemon backend/server.js",
+    "seed": "node backend/seed.js",
+    "install:backend": "cd backend && npm install"
+  },
+  "keywords": [
+    "mern",
+    "mongodb",
+    "express",
+    "react",
+    "node",
+    "complaint-management-system"
+  ],
+  "author": "Zeal College of Engineering & Technology",
+  "license": "ISC"
+}
+

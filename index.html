@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Student Complaint Management System (SCMS) | Zeal College of Engineering</title>
+  
+  <!-- FontAwesome Icons & Google Fonts -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Socket.IO & Chart.js -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+  <!-- Top Navigation Header -->
+  <header class="app-header">
+    <div class="brand-container">
+      <div class="brand-logo">
+        <i class="fa-solid fa-graduation-cap"></i>
+      </div>
+      <div class="brand-text">
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <h1>SCMS Portal</h1>
+          <span class="badge" id="mern-status-badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); font-size: 0.72rem; padding: 0.15rem 0.5rem; border-radius: 999px;">
+            <i class="fa-solid fa-layer-group"></i> MERN Stack
+          </span>
+          <span class="socket-pill disconnected" id="socket-status" title="Socket.IO Real-time Synchronization Status">
+            <span class="socket-dot"></span> <span id="socket-status-text">Live Sync</span>
+          </span>
+        </div>
+        <div class="brand-subtitle">Student Complaint Management System</div>
+      </div>
+    </div>
+
+    <!-- User Authentication & Header Actions -->
+    <div class="header-actions">
+      <!-- Active Logged In User Profile Chip (Hidden on initial load until login) -->
+      <div class="user-profile-bar" id="user-profile-bar" style="display: none;">
+        <div class="user-avatar-sm" id="user-avatar">SG</div>
+        <div class="user-info-text">
+          <span class="user-name" id="header-user-name">Swaraj Godambe</span>
+          <span class="user-role-tag" id="header-user-role"><i class="fa-solid fa-user-graduate"></i> Student</span>
+        </div>
+        <button class="btn-secondary btn-sm" onclick="handleLogout()" title="Logout" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3); display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.65rem;">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout
+        </button>
+      </div>
+
+      <!-- Notification Bell (Hidden on initial load until login) -->
+      <button class="btn-icon-only" onclick="toggleNotificationsModal()" title="Notifications" id="header-notif-btn" style="display: none;">
+        <i class="fa-solid fa-bell"></i>
+        <span class="notification-badge" id="unread-count">0</span>
+      </button>
+
+      <!-- Theme Switcher (Defaults to Light Mode) -->
+      <button class="btn-icon-only" onclick="toggleTheme()" title="Switch to Dark Mode" id="theme-toggle-btn">
+        <i class="fa-solid fa-moon"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main App Layout -->
+  <div class="app-container">
+
+    <!-- VIEW 0: LANDING LOGIN / REGISTRATION PAGE (Shown first when opening website) -->
+    <section id="view-login" class="view-section active">
+      <div class="landing-auth-card">
+        
+        <div style="text-align: center; margin-bottom: 2rem;">
+          <div class="brand-logo" style="margin: 0 auto 1rem auto; width: 64px; height: 64px; font-size: 1.8rem;">
+            <i class="fa-solid fa-graduation-cap"></i>
+          </div>
+          <h2 style="font-size: 1.6rem; color: var(--text-main); margin-bottom: 0.4rem;">Student Complaint Management System</h2>
+          <p style="color: var(--text-muted); font-size: 0.9rem;">Zeal College of Engineering & Technology Portal Access</p>
+        </div>
+
+        <!-- Auth Tabs -->
+        <div class="auth-tabs" style="margin-bottom: 1.5rem;">
+          <button class="auth-tab-btn active" id="auth-landing-tab-student" onclick="switchLandingAuthTab('student')">Student Login</button>
+          <button class="auth-tab-btn" id="auth-landing-tab-authority" onclick="switchLandingAuthTab('authority')">Dept Officer</button>
+          <button class="auth-tab-btn" id="auth-landing-tab-admin" onclick="switchLandingAuthTab('admin')">Admin</button>
+          <button class="auth-tab-btn" id="auth-landing-tab-register" onclick="switchLandingAuthTab('register')">Register</button>
+        </div>
+
+        <!-- FORM 1: STUDENT LOGIN -->
+        <form id="landing-form-student" onsubmit="handleAuthLogin(event, 'student')" class="landing-auth-form">
+          <div class="form-group">
+            <label><i class="fa-solid fa-envelope"></i> Student Email or Roll No *</label>
+            <input type="text" id="landing-student-id" class="form-control" placeholder="e.g. swaraj@zeal.edu.in or IT2143" value="swaraj@zeal.edu.in" required>
+          </div>
+          <div class="form-group">
+            <label><i class="fa-solid fa-lock"></i> Password *</label>
+            <input type="password" id="landing-student-pass" class="form-control" placeholder="••••••••" value="swaraj@123" required>
+          </div>
+          <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 1.25rem; padding: 0.85rem;">
+            <i class="fa-solid fa-right-to-bracket"></i> Login to Student Portal
+          </button>
+        </form>
+
+        <!-- FORM 2: DEPT OFFICER LOGIN -->
+        <form id="landing-form-authority" onsubmit="handleAuthLogin(event, 'authority')" class="landing-auth-form" style="display: none;">
+          <div class="form-group">
+            <label><i class="fa-solid fa-building-user"></i> Department *</label>
+            <select id="landing-dept-select" class="form-control" required>
+              <option value="IT">Information Technology Dept</option>
+              <option value="COMP">Computer Engineering Dept</option>
+              <option value="INFRA">Infrastructure & Maintenance</option>
+              <option value="TRANS">Transportation Authority</option>
+              <option value="EXAM">Exam Cell</option>
+              <option value="HOSTEL">Hostel Management</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label><i class="fa-solid fa-id-badge"></i> Officer Staff Email *</label>
+            <input type="text" id="landing-auth-id" class="form-control" placeholder="e.g. ithod@zeal.edu.in" value="ithod@zeal.edu.in" required>
+          </div>
+          <div class="form-group">
+            <label><i class="fa-solid fa-lock"></i> Security Password *</label>
+            <input type="password" id="landing-auth-pass" class="form-control" placeholder="••••••••" value="officer123" required>
+          </div>
+          <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 1.25rem; padding: 0.85rem; background: linear-gradient(135deg, var(--secondary), #0284c7);">
+            <i class="fa-solid fa-user-shield"></i> Login to Department Workspace
+          </button>
+        </form>
+
+        <!-- FORM 3: ADMIN LOGIN -->
+        <form id="landing-form-admin" onsubmit="handleAuthLogin(event, 'admin')" class="landing-auth-form" style="display: none;">
+          <div class="form-group">
+            <label><i class="fa-solid fa-user-gear"></i> Administrator Email / ID *</label>
+            <input type="text" id="landing-admin-id" class="form-control" placeholder="admin@zeal.edu.in" value="admin@zeal.edu.in" required>
+          </div>
+          <div class="form-group">
+            <label><i class="fa-solid fa-key"></i> Admin Access Key *</label>
+            <input type="password" id="landing-admin-pass" class="form-control" placeholder="••••••••" value="admin123" required>
+          </div>
+          <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 1.25rem; padding: 0.85rem; background: linear-gradient(135deg, #8b5cf6, #6366f1);">
+            <i class="fa-solid fa-shield-cat"></i> Login to Admin Console
+          </button>
+        </form>
+
+        <!-- FORM 4: STUDENT REGISTER -->
+        <form id="landing-form-register" onsubmit="handleAuthRegister(event)" class="landing-auth-form" style="display: none;">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Full Name *</label>
+              <input type="text" id="landing-reg-name" class="form-control" placeholder="e.g. Swaraj Godambe" required>
+            </div>
+            <div class="form-group">
+              <label>Roll No / PRN *</label>
+              <input type="text" id="landing-reg-roll" class="form-control" placeholder="e.g. IT2143" required>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Department *</label>
+              <select id="landing-reg-dept" class="form-control" required>
+                <option value="IT">Information Technology</option>
+                <option value="COMP">Computer Engineering</option>
+                <option value="ENTC">E&TC Engineering</option>
+                <option value="MECH">Mechanical Engineering</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Email Address *</label>
+              <input type="email" id="landing-reg-email" class="form-control" placeholder="student@zeal.edu.in" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Create Password *</label>
+            <input type="password" id="landing-reg-pass" class="form-control" placeholder="At least 6 characters" required minlength="4">
+          </div>
+          <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 1.25rem; padding: 0.85rem; background: linear-gradient(135deg, #10b981, #059669);">
+            <i class="fa-solid fa-user-plus"></i> Create Student Account & Login
+          </button>
+        </form>
+
+        <!-- Quick 1-Click Evaluation Login Fast Buttons -->
+        <div class="demo-login-box" style="margin-top: 1.5rem;">
+          <label style="font-size: 0.78rem; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 0.35rem;">
+            <i class="fa-solid fa-bolt" style="color: #fbbf24;"></i> Quick 1-Click Evaluation Login:
+          </label>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+            <button class="demo-btn" onclick="quickDemoLogin('student')"><i class="fa-solid fa-user-graduate"></i> Student (Swaraj)</button>
+            <button class="demo-btn" onclick="quickDemoLogin('authority')"><i class="fa-solid fa-user-shield"></i> IT Dept HOD</button>
+            <button class="demo-btn" onclick="quickDemoLogin('admin')"><i class="fa-solid fa-user-gear"></i> Administrator</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- AUTHENTICATED PORTAL WORKSPACE CONTAINER (Shown after Login) -->
+    <div id="authenticated-workspace" style="display: none;">
+      
+      <!-- Hero Banner Card -->
+      <div class="hero-banner-box">
+        <img src="hero-banner.jpg" alt="Student Complaint Management System Banner">
+        <div class="hero-overlay">
+          <h2 id="hero-welcome-title">Centralized Grievance Redressal Portal</h2>
+          <p id="hero-welcome-desc">A transparent, role-based digital platform connecting Zeal College students with Heads of Departments and College Administration.</p>
+          <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;" id="hero-action-buttons">
+            <button class="btn-primary" onclick="openNewComplaintModal()">
+              <i class="fa-solid fa-circle-plus"></i> Submit New Complaint
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs (Filtered Dynamically by User Role) -->
+      <div class="nav-tabs">
+        <button class="tab-btn active" id="tab-dashboard" onclick="switchTab('dashboard')">
+          <i class="fa-solid fa-table-cells-large"></i> Student Portal
+        </button>
+        <button class="tab-btn" id="tab-authority" onclick="switchTab('authority')">
+          <i class="fa-solid fa-building-user"></i> Department Officer Portal
+        </button>
+        <button class="tab-btn" id="tab-admin" onclick="switchTab('admin')">
+          <i class="fa-solid fa-chart-line"></i> Admin & Analytics
+        </button>
+      </div>
+
+      <!-- Key Metrics Stats Overview (Interactive KPI Palettes) -->
+      <div class="metrics-grid">
+        <div class="metric-card active-kpi" id="kpi-card-total" style="--card-accent: #6366f1;" onclick="filterByKpi('ALL')" title="Click to show all tickets">
+          <div class="metric-data">
+            <h3 id="stat-total-label">Total Registered</h3>
+            <div class="value" id="stat-total">0</div>
+            <div class="trend positive" id="stat-total-trend"><i class="fa-solid fa-arrow-trend-up"></i> Centralized Database</div>
+          </div>
+          <div class="metric-icon"><i class="fa-solid fa-folder-open"></i></div>
+        </div>
+
+        <div class="metric-card" id="kpi-card-pending" style="--card-accent: #f59e0b;" onclick="filterByKpi('Pending')" title="Click to filter by Pending tickets">
+          <div class="metric-data">
+            <h3 id="stat-pending-label">Pending Validation</h3>
+            <div class="value" id="stat-pending">0</div>
+            <div class="trend neutral" id="stat-pending-trend"><i class="fa-solid fa-clock"></i> Awaiting Dept Review</div>
+          </div>
+          <div class="metric-icon"><i class="fa-solid fa-hourglass-half"></i></div>
+        </div>
+
+        <div class="metric-card" id="kpi-card-progress" style="--card-accent: #0ea5e9;" onclick="filterByKpi('In Progress')" title="Click to filter by In Progress tickets">
+          <div class="metric-data">
+            <h3 id="stat-progress-label">In Progress / Investigation</h3>
+            <div class="value" id="stat-progress">0</div>
+            <div class="trend positive" id="stat-progress-trend"><i class="fa-solid fa-arrows-rotate"></i> Real-time Tracking</div>
+          </div>
+          <div class="metric-icon"><i class="fa-solid fa-gears"></i></div>
+        </div>
+
+        <div class="metric-card" id="kpi-card-resolved" style="--card-accent: #10b981;" onclick="filterByKpi('Resolved')" title="Click to filter by Resolved tickets">
+          <div class="metric-data">
+            <h3 id="stat-resolved-label">Resolved Grievances</h3>
+            <div class="value" id="stat-resolved">0</div>
+            <div class="trend positive" id="stat-resolved-trend"><i class="fa-solid fa-circle-check"></i> 100% Resolution Rate</div>
+          </div>
+          <div class="metric-icon"><i class="fa-solid fa-circle-check"></i></div>
+        </div>
+      </div>
+
+      <!-- VIEW 1: STUDENT DASHBOARD VIEW -->
+      <section id="view-dashboard" class="view-section active">
+        <div class="controls-bar">
+          <div class="search-box">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" id="search-input" placeholder="Search complaints by ID, title, or keyword..." oninput="renderComplaints()">
+          </div>
+          
+          <div class="filter-group">
+            <select id="filter-dept" class="select-filter" onchange="renderComplaints()">
+              <option value="ALL">All Departments</option>
+              <option value="IT">Information Technology</option>
+              <option value="COMP">Computer Engineering</option>
+              <option value="INFRA">Infrastructure & Maintenance</option>
+              <option value="TRANS">Transportation</option>
+              <option value="EXAM">Examination Office</option>
+              <option value="HOSTEL">Hostel & Amenities</option>
+            </select>
+
+            <select id="filter-status" class="select-filter" onchange="renderComplaints()">
+              <option value="ALL">All Statuses</option>
+              <option value="Pending">Pending</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Resolved">Resolved</option>
+              <option value="Closed">Closed</option>
+            </select>
+
+            <button class="btn-primary" id="btn-student-submit-filter" onclick="openNewComplaintModal()">
+              <i class="fa-solid fa-plus"></i> New Complaint
+            </button>
+          </div>
+        </div>
+
+        <!-- Complaint Cards Container -->
+        <div id="complaints-grid" class="complaint-grid">
+          <!-- Rendered dynamically by app.js -->
+        </div>
+
+        <!-- Student Complaint Pagination Container -->
+        <div id="student-pagination" class="pagination-container"></div>
+      </section>
+
+      <!-- VIEW 2: DEPARTMENT / AUTHORITY PORTAL -->
+      <section id="view-authority" class="view-section">
+        <div style="margin-bottom: 1.5rem; background: var(--bg-card); padding: 1.25rem; border-radius: var(--radius-lg); border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <h2 style="font-size: 1.25rem; margin-bottom: 0.2rem;"><i class="fa-solid fa-building-user"></i> Department Officer Workspace</h2>
+            <p style="color: var(--text-muted); font-size: 0.88rem;">Review assigned grievances, validate issues, update status, and communicate official responses.</p>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <label style="font-size: 0.85rem; font-weight: 600;">Logged in Dept:</label>
+            <select id="authority-dept-select" class="select-filter" onchange="renderAuthorityView()" style="background: var(--primary); color: #fff; font-weight: 600;">
+              <option value="IT">Information Technology Dept</option>
+              <option value="COMP">Computer Engineering Dept</option>
+              <option value="INFRA">Infrastructure & Maintenance</option>
+              <option value="TRANS">Transportation Authority</option>
+              <option value="EXAM">Exam Cell</option>
+              <option value="HOSTEL">Hostel Management</option>
+              <option value="ALL">All Campus Departments</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="authority-complaints-list" class="complaint-grid">
+          <!-- Rendered dynamically -->
+        </div>
+      </section>
+
+      <!-- VIEW 3: ADMIN & ANALYTICS DASHBOARD -->
+      <section id="view-admin" class="view-section">
+        <div class="controls-bar" style="margin-bottom: 1.5rem; flex-wrap: wrap;">
+          <div>
+            <h2 style="font-size: 1.25rem;"><i class="fa-solid fa-chart-line"></i> Institutional Analytics & Global Controls</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">System-wide grievance monitoring, department routing, user governance, and statistical audit reports.</p>
+          </div>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn-secondary btn-sm" onclick="exportComplaintsCSV()" title="Export all grievances to CSV spreadsheet">
+              <i class="fa-solid fa-file-csv" style="color: #10b981;"></i> Export CSV
+            </button>
+            <button class="btn-primary btn-sm" onclick="printOfficialReport()" title="Generate Printable PDF Audit Report">
+              <i class="fa-solid fa-print"></i> Print Official Report
+            </button>
+          </div>
+        </div>
+
+        <!-- Admin Navigation Sub-Tabs -->
+        <div class="admin-subtabs" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; flex-wrap: wrap;">
+          <button class="admin-subtab-btn active" id="admin-subtab-btn-analytics" onclick="switchAdminSubtab('analytics')">
+            <i class="fa-solid fa-chart-pie"></i> Analytics & Charts
+          </button>
+          <button class="admin-subtab-btn" id="admin-subtab-btn-complaints" onclick="switchAdminSubtab('complaints')">
+            <i class="fa-solid fa-table-list"></i> Master Complaints Register
+          </button>
+          <button class="admin-subtab-btn" id="admin-subtab-btn-users" onclick="switchAdminSubtab('users')">
+            <i class="fa-solid fa-users-gear"></i> User Management
+          </button>
+          <button class="admin-subtab-btn" id="admin-subtab-btn-departments" onclick="switchAdminSubtab('departments')">
+            <i class="fa-solid fa-building-circle-check"></i> Department Health & SLAs
+          </button>
+        </div>
+
+        <!-- SUBVIEW 1: ANALYTICS & CHARTS -->
+        <div id="admin-subview-analytics" class="admin-subview active">
+          <div class="charts-grid">
+            <div class="chart-card">
+              <h3><i class="fa-solid fa-chart-pie" style="color: var(--primary);"></i> Complaints by Department</h3>
+              <div class="canvas-container">
+                <canvas id="chart-dept"></canvas>
+              </div>
+            </div>
+
+            <div class="chart-card">
+              <h3><i class="fa-solid fa-chart-column" style="color: var(--secondary);"></i> Status Breakdown</h3>
+              <div class="canvas-container">
+                <canvas id="chart-status"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SUBVIEW 2: MASTER COMPLAINTS REGISTER -->
+        <div id="admin-subview-complaints" class="admin-subview" style="display: none;">
+          <div class="controls-bar" style="margin-bottom: 1rem;">
+            <div class="search-box">
+              <i class="fa-solid fa-magnifying-glass search-icon"></i>
+              <input type="text" id="admin-search-input" placeholder="Search by student, ID, or keywords..." oninput="renderAdminTable()">
+            </div>
+            <div class="filter-group">
+              <select id="admin-filter-dept" class="select-filter" onchange="renderAdminTable()">
+                <option value="ALL">All Departments</option>
+                <option value="IT">Information Technology</option>
+                <option value="COMP">Computer Engineering</option>
+                <option value="INFRA">Infrastructure & Maintenance</option>
+                <option value="TRANS">Transportation</option>
+                <option value="EXAM">Examination Office</option>
+                <option value="HOSTEL">Hostel & Amenities</option>
+              </select>
+              <select id="admin-filter-priority" class="select-filter" onchange="renderAdminTable()">
+                <option value="ALL">All Priorities</option>
+                <option value="High">High</option>
+                <option value="Medium">Medium</option>
+                <option value="Low">Low</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Complaint ID</th>
+                  <th>Student</th>
+                  <th>Category</th>
+                  <th>Department</th>
+                  <th>Date Submitted</th>
+                  <th>Priority</th>
+                  <th>SLA Deadline</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="admin-table-body">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SUBVIEW 3: USER MANAGEMENT -->
+        <div id="admin-subview-users" class="admin-subview" style="display: none;">
+          <div class="controls-bar" style="margin-bottom: 1rem;">
+            <div class="search-box">
+              <i class="fa-solid fa-magnifying-glass search-icon"></i>
+              <input type="text" id="user-search-input" placeholder="Search user by name, email, or roll no..." oninput="renderAdminUsers()">
+            </div>
+            <div class="filter-group">
+              <select id="user-filter-role" class="select-filter" onchange="renderAdminUsers()">
+                <option value="ALL">All Roles</option>
+                <option value="student">Students</option>
+                <option value="authority">Dept Officers</option>
+                <option value="admin">Administrators</option>
+              </select>
+              <button class="btn-primary btn-sm" onclick="openAdminUserModal()">
+                <i class="fa-solid fa-user-plus"></i> Add New User
+              </button>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>User ID</th>
+                  <th>Full Name</th>
+                  <th>Email Address</th>
+                  <th>Role</th>
+                  <th>Department / Roll</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-table-body">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- SUBVIEW 4: DEPARTMENT HEALTH & SLA METRICS -->
+        <div id="admin-subview-departments" class="admin-subview" style="display: none;">
+          <div id="admin-departments-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+      </section>
+
+    </div><!-- End of authenticated workspace -->
+
+  </div>
+
+  <!-- MODAL 1: NEW COMPLAINT SUBMISSION -->
+  <div class="modal-overlay" id="modal-new-complaint">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h2><i class="fa-solid fa-pen-to-square" style="color: var(--primary);"></i> Submit New Complaint</h2>
+        <button class="btn-close" onclick="closeModal('modal-new-complaint')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Fill out the details below. A unique Complaint ID will be automatically generated upon submission.
+        </p>
+
+        <form id="form-complaint" onsubmit="handleComplaintSubmit(event)">
+          <div class="ai-assistant-banner" style="background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.25); padding: 0.65rem 0.95rem; border-radius: var(--radius-md); margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <i class="fa-solid fa-wand-magic-sparkles" style="color: #a855f7; font-size: 1.1rem;"></i>
+              <div>
+                <span style="font-weight: 700; color: var(--text-main); font-size: 0.85rem;">AI Smart Redressal Assistant</span>
+                <p style="font-size: 0.76rem; color: var(--text-muted); margin: 0;">Auto-detect target department, category & SLA priority from your complaint description.</p>
+              </div>
+            </div>
+            <button type="button" class="btn-primary btn-sm" id="btn-ai-suggest" onclick="runAiSuggestion()" style="background: linear-gradient(135deg, #8b5cf6, #6366f1); border: none; font-size: 0.78rem; padding: 0.4rem 0.8rem;">
+              <i class="fa-solid fa-brain"></i> Auto-Fill with AI
+            </button>
+          </div>
+
+          <div id="ai-suggestion-box" style="display: none; margin-bottom: 1rem; background: var(--bg-surface); border: 1px solid #8b5cf6; padding: 0.85rem; border-radius: var(--radius-md);"></div>
+
+          <div class="form-group">
+            <label for="comp-title">Complaint Title *</label>
+            <input type="text" id="comp-title" class="form-control" placeholder="Brief summary of the issue..." required>
+          </div>
+
+          <div class="form-group">
+            <label for="comp-desc">Detailed Description *</label>
+            <textarea id="comp-desc" class="form-control" placeholder="Provide full details, location, room number, or specifics..." required></textarea>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="comp-dept">Target Department *</label>
+              <select id="comp-dept" class="form-control" required>
+                <option value="IT">Information Technology</option>
+                <option value="COMP">Computer Engineering</option>
+                <option value="INFRA">Infrastructure & Maintenance</option>
+                <option value="TRANS">Transportation Authority</option>
+                <option value="EXAM">Exam Cell</option>
+                <option value="HOSTEL">Hostel Management</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="comp-category">Category *</label>
+              <select id="comp-category" class="form-control" required>
+                <option value="Academics">Academics & Labs</option>
+                <option value="Faculty">Faculty & Teaching</option>
+                <option value="Examinations">Examinations & Grading</option>
+                <option value="Transportation">Transportation & Buses</option>
+                <option value="Infrastructure">Infrastructure & Facilities</option>
+                <option value="General">General Grievance</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="comp-priority">Priority Level *</label>
+              <select id="comp-priority" class="form-control" required>
+                <option value="Low">Low (Standard Request - 120h SLA)</option>
+                <option value="Medium" selected>Medium (Needs Attention - 72h SLA)</option>
+                <option value="High">High (Urgent Escalation - 48h SLA)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label for="comp-student-name">Student Name *</label>
+              <input type="text" id="comp-student-name" class="form-control" value="Swaraj Godambe (IT2143)" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Supporting Document / Image Attachment (Optional)</label>
+            <div style="border: 2px dashed var(--border-color); border-radius: var(--radius-md); padding: 1.25rem; text-align: center; background: var(--bg-card); cursor: pointer;" onclick="document.getElementById('file-upload').click()">
+              <i class="fa-solid fa-cloud-arrow-up" style="font-size: 1.75rem; color: var(--primary); margin-bottom: 0.5rem;"></i>
+              <p style="font-size: 0.85rem; color: var(--text-muted);" id="file-label">Click to select photo/PDF attachment or drag and drop</p>
+              <input type="file" id="file-upload" style="display: none;" onchange="handleFileSelect(event)">
+            </div>
+            <div id="file-preview-container" style="display: none; margin-top: 0.6rem; background: var(--bg-surface); padding: 0.5rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color); align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;">
+                <i class="fa-solid fa-file-circle-check" style="color: #10b981;"></i>
+                <span id="file-preview-name"></span>
+                <span id="file-preview-size" style="color: var(--text-muted); font-size: 0.78rem;"></span>
+              </div>
+              <button type="button" onclick="clearSelectedFile(event)" style="background: none; border: none; color: #ef4444; cursor: pointer;" title="Remove attachment">
+                <i class="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+            <button type="button" class="btn-secondary" onclick="closeModal('modal-new-complaint')">Cancel</button>
+            <button type="submit" class="btn-primary"><i class="fa-solid fa-paper-plane"></i> Submit Grievance</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: DETAILED TRACKING TIMELINE & REMARKS -->
+  <div class="modal-overlay" id="modal-detail">
+    <div class="modal-container" style="max-width: 760px;">
+      <div class="modal-header">
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span class="ticket-id" id="detail-ticket-id">CMP-2026-1042</span>
+            <span id="detail-sla-badge" style="font-size: 0.75rem; padding: 0.15rem 0.55rem; border-radius: 999px; background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3);">
+              <i class="fa-solid fa-stopwatch"></i> SLA: 48h
+            </span>
+          </div>
+          <h2 id="detail-title" style="margin-top: 0.3rem;">Lab PC Hardware Issue</h2>
+        </div>
+        <button class="btn-close" onclick="closeModal('modal-detail')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        
+        <!-- SLA Overdue Alert Banner -->
+        <div id="detail-overdue-banner" style="display: none; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; font-size: 0.85rem;">
+          <i class="fa-solid fa-triangle-exclamation"></i> <strong>SLA BREACH DETECTED:</strong> This complaint is past its target resolution deadline and has been escalated for administrator attention.
+        </div>
+
+        <!-- Details Overview Grid -->
+        <div style="background: var(--bg-card); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-bottom: 1.5rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; font-size: 0.85rem;">
+          <div>
+            <span style="color: var(--text-dark); display: block;">Department</span>
+            <strong id="detail-dept">Information Technology</strong>
+          </div>
+          <div>
+            <span style="color: var(--text-dark); display: block;">Submitted By</span>
+            <strong id="detail-student">Swaraj Godambe</strong>
+          </div>
+          <div>
+            <span style="color: var(--text-dark); display: block;">Priority</span>
+            <strong id="detail-priority" class="priority-high">High</strong>
+          </div>
+          <div>
+            <span style="color: var(--text-dark); display: block;">Status</span>
+            <span id="detail-status-badge" class="badge badge-in-progress">In Progress</span>
+          </div>
+        </div>
+
+        <!-- Assigned Officer Box -->
+        <div id="detail-assigned-box" style="display: none; font-size: 0.85rem; margin-bottom: 1.25rem; padding: 0.75rem 1rem; background: rgba(14, 165, 233, 0.1); border: 1px solid rgba(14, 165, 233, 0.3); border-radius: var(--radius-md); align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <i class="fa-solid fa-user-check" style="color: #38bdf8; font-size: 1.1rem;"></i>
+            <div>
+              <span style="color: var(--text-muted); font-size: 0.78rem;">Assigned Officer:</span>
+              <div id="detail-assigned-text" style="font-weight: 600; color: var(--text-main);">Prof. Sharma (Lab In-Charge)</div>
+            </div>
+          </div>
+          <span id="detail-assigned-date" style="font-size: 0.78rem; color: var(--text-dark);"></span>
+        </div>
+
+        <!-- Complaint Description -->
+        <div style="margin-bottom: 1.5rem;">
+          <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.4rem;">Description</h4>
+          <p id="detail-desc" style="font-size: 0.92rem; background: var(--bg-surface); padding: 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);"></p>
+        </div>
+
+        <!-- Attachment Link if any -->
+        <div id="detail-attachment-container" style="margin-bottom: 1.5rem; display: none;">
+          <h4 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.4rem;">Attachment</h4>
+          <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; background: var(--bg-card); padding: 0.6rem 0.9rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+            <i class="fa-solid fa-paperclip" style="color: var(--primary);"></i>
+            <span id="detail-attachment-name">hardware_screenshot.jpg</span>
+          </div>
+        </div>
+
+        <!-- Visual Tracking Progress Timeline -->
+        <h4 style="font-size: 1rem; margin-bottom: 0.75rem;"><i class="fa-solid fa-timeline" style="color: var(--secondary);"></i> Complaint Progress Timeline</h4>
+        <div class="timeline" id="detail-timeline">
+          <!-- Timeline steps rendered dynamically -->
+        </div>
+
+        <!-- Authority Response / Remarks Thread -->
+        <h4 style="font-size: 1rem; margin-top: 1.5rem; margin-bottom: 0.75rem;"><i class="fa-solid fa-comments" style="color: var(--primary);"></i> Official Remarks & Responses</h4>
+        <div class="remarks-thread" id="detail-remarks">
+          <!-- Remarks rendered dynamically -->
+        </div>
+
+        <!-- Student Resolution Feedback & Rating Section -->
+        <div id="detail-feedback-section" style="margin-top: 1.5rem; padding: 1.25rem; background: var(--bg-surface); border-radius: var(--radius-md); border: 1px solid var(--border-color); display: none;">
+          <h4 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: #10b981;">
+            <i class="fa-solid fa-star"></i> Grievance Resolution Rating & Feedback
+          </h4>
+          <div id="detail-feedback-display" style="display: none;"></div>
+          <div id="detail-feedback-form">
+            <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.6rem;">
+              Are you satisfied with how this issue was redressed? Rate the resolution:
+            </p>
+            <div class="star-rating" id="feedback-star-rating" style="display: flex; gap: 0.4rem; font-size: 1.4rem; color: #f59e0b; cursor: pointer; margin-bottom: 0.6rem;">
+              <i class="fa-regular fa-star" data-val="1" onclick="setFeedbackRating(1)"></i>
+              <i class="fa-regular fa-star" data-val="2" onclick="setFeedbackRating(2)"></i>
+              <i class="fa-regular fa-star" data-val="3" onclick="setFeedbackRating(3)"></i>
+              <i class="fa-regular fa-star" data-val="4" onclick="setFeedbackRating(4)"></i>
+              <i class="fa-regular fa-star" data-val="5" onclick="setFeedbackRating(5)"></i>
+              <span id="feedback-rating-score" style="font-size: 0.85rem; color: var(--text-muted); margin-left: 0.5rem; align-self: center;">(Click to rate)</span>
+            </div>
+            <textarea id="feedback-comment-input" class="form-control" style="min-height: 60px; margin-bottom: 0.6rem;" placeholder="Optional comments on resolution quality..."></textarea>
+            <button type="button" class="btn-primary btn-sm" onclick="submitResolutionFeedback()"><i class="fa-solid fa-check"></i> Submit Feedback</button>
+          </div>
+        </div>
+
+        <!-- Department Officer Quick Action Form inside modal -->
+        <div id="authority-action-box" style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border-color); display: none;">
+          <h4 style="font-size: 0.95rem; margin-bottom: 0.75rem; color: var(--secondary);">
+            <i class="fa-solid fa-user-shield"></i> Department Officer Action
+          </h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Update Status</label>
+              <select id="update-status-select" class="form-control">
+                <option value="Pending">Pending Validation</option>
+                <option value="In Progress">In Progress / Investigating</option>
+                <option value="Resolved">Resolved</option>
+                <option value="Closed">Closed</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Re-Assign Department</label>
+              <select id="update-dept-select" class="form-control">
+                <option value="IT">IT Department</option>
+                <option value="COMP">Computer Dept</option>
+                <option value="INFRA">Infrastructure & Maintenance</option>
+                <option value="TRANS">Transportation</option>
+                <option value="EXAM">Exam Cell</option>
+                <option value="HOSTEL">Hostel Management</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label><i class="fa-solid fa-user-tag"></i> Assign Officer Name</label>
+              <input type="text" id="update-officer-name" class="form-control" placeholder="e.g. Mr. Shinde (Lab Tech)">
+            </div>
+            <div class="form-group">
+              <label><i class="fa-solid fa-briefcase"></i> Officer Role / Designation</label>
+              <input type="text" id="update-officer-role" class="form-control" placeholder="e.g. Senior Hardware Tech">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Add Official Remark / Resolution Response</label>
+            <textarea id="update-remark-text" class="form-control" style="min-height: 80px;" placeholder="Type response for the student..."></textarea>
+          </div>
+          <button class="btn-primary" onclick="submitAuthorityUpdate()"><i class="fa-solid fa-floppy-disk"></i> Save & Notify Student</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: NOTIFICATIONS DRAWER -->
+  <div class="modal-overlay" id="modal-notifications">
+    <div class="modal-container" style="max-width: 500px;">
+      <div class="modal-header">
+        <h2><i class="fa-solid fa-bell" style="color: var(--primary);"></i> Complaint Activity & Alerts</h2>
+        <button class="btn-close" onclick="closeModal('modal-notifications')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Real-time notifications for grievance submission, department assignment, and status updates.
+        </p>
+        <div id="notifications-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 5: ADMIN CREATE / MANAGE USER -->
+  <div class="modal-overlay" id="modal-admin-user">
+    <div class="modal-container" style="max-width: 520px;">
+      <div class="modal-header">
+        <h2><i class="fa-solid fa-user-gear" style="color: var(--primary);"></i> <span id="admin-user-modal-title">Create System User</span></h2>
+        <button class="btn-close" onclick="closeModal('modal-admin-user')"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="form-admin-user" onsubmit="handleAdminUserSubmit(event)">
+          <div class="form-group">
+            <label>Full Name *</label>
+            <input type="text" id="admin-user-name" class="form-control" placeholder="e.g. Prof. R. S. Patil" required>
+          </div>
+          <div class="form-group">
+            <label>Email Address *</label>
+            <input type="email" id="admin-user-email" class="form-control" placeholder="e.g. rspatil@zeal.edu.in" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>System Role *</label>
+              <select id="admin-user-role" class="form-control" required onchange="handleAdminRoleChange()">
+                <option value="student">Student</option>
+                <option value="authority">Department Officer</option>
+                <option value="admin">Administrator</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Department *</label>
+              <select id="admin-user-dept" class="form-control" required>
+                <option value="IT">Information Technology</option>
+                <option value="COMP">Computer Engineering</option>
+                <option value="INFRA">Infrastructure & Maintenance</option>
+                <option value="TRANS">Transportation Authority</option>
+                <option value="EXAM">Exam Cell</option>
+                <option value="HOSTEL">Hostel Management</option>
+                <option value="ALL">All Departments (Admin)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Roll No / Staff ID *</label>
+              <input type="text" id="admin-user-roll" class="form-control" placeholder="e.g. STAFF-IT-02" required>
+            </div>
+            <div class="form-group">
+              <label>Password *</label>
+              <input type="password" id="admin-user-pass" class="form-control" placeholder="••••••••" required minlength="4">
+            </div>
+          </div>
+          <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+            <button type="button" class="btn-secondary" onclick="closeModal('modal-admin-user')">Cancel</button>
+            <button type="submit" class="btn-primary"><i class="fa-solid fa-floppy-disk"></i> Save User Account</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Async Loading Spinner Overlay -->
+  <div id="global-loader" class="global-loader" style="display: none;">
+    <div class="loader-content">
+      <div class="loader-spinner"></div>
+      <p id="loader-text" style="margin-top: 0.75rem; font-weight: 600; font-size: 0.9rem; color: #fff;">Processing...</p>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- App Main Logic JavaScript -->
+  <script src="app.js"></script>
+</body>
+</html>
