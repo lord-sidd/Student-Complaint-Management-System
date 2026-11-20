@@ -48,6 +48,40 @@ const userSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    academicYear: {
+      type: String,
+      default: 'TE (Third Year)',
+      trim: true,
+    },
+    division: {
+      type: String,
+      default: 'A',
+      trim: true,
+    },
+    guardianName: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    guardianPhone: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    address: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    batchYear: {
+      type: String,
+      default: '2023 - 2027',
+      trim: true,
+    },
+    avatar: {
+      type: String,
+      default: '',
+    },
     isActive: {
       type: Boolean,
       default: true,

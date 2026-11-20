@@ -305,9 +305,19 @@ async function loadStoredData() {
     usersData.unshift(DEFAULT_USERS[0]);
   }
 
-  // Always ensure the website shows the Login page first upon opening
-  currentUser = null;
-  localStorage.removeItem('scms_current_user');
+  // Restore session from localStorage if user was previously authenticated
+  const storedUser = localStorage.getItem('scms_current_user');
+  const storedToken = localStorage.getItem('scms_jwt_token');
+  if (storedUser && storedToken) {
+    try {
+      currentUser = JSON.parse(storedUser);
+    } catch (e) {
+      currentUser = null;
+      localStorage.removeItem('scms_current_user');
+    }
+  } else {
+    currentUser = null;
+  }
 
   // Fetch Complaints from Backend API
   try {
@@ -380,16 +390,20 @@ function renderAppViewState() {
 // Role Navigation Tabs & Portal Scoping
 function applyStrictRoleNavigation() {
   const tabDashboard = document.getElementById('tab-dashboard');
+  const tabStudentProfile = document.getElementById('tab-student-profile');
   const tabAuthority = document.getElementById('tab-authority');
   const tabAdmin = document.getElementById('tab-admin');
+  const headerProfileBtn = document.getElementById('header-profile-btn');
   const heroActionBtns = document.getElementById('hero-action-buttons');
   const heroTitle = document.getElementById('hero-welcome-title');
   const heroDesc = document.getElementById('hero-welcome-desc');
   const deptFilter = document.getElementById('filter-dept');
 
   if (tabDashboard) tabDashboard.style.display = 'none';
+  if (tabStudentProfile) tabStudentProfile.style.display = 'none';
   if (tabAuthority) tabAuthority.style.display = 'none';
   if (tabAdmin) tabAdmin.style.display = 'none';
+  if (headerProfileBtn) headerProfileBtn.style.display = 'none';
 
   if (!currentUser) return;
 
@@ -398,15 +412,25 @@ function applyStrictRoleNavigation() {
       tabDashboard.style.display = 'inline-flex';
       tabDashboard.innerHTML = '<i class="fa-solid fa-list-check"></i> My Complaints';
     }
+    if (tabStudentProfile) {
+      tabStudentProfile.style.display = 'inline-flex';
+      tabStudentProfile.innerHTML = '<i class="fa-solid fa-id-card"></i> Student Profile';
+    }
+    if (headerProfileBtn) {
+      headerProfileBtn.style.display = 'inline-flex';
+    }
 
     if (deptFilter) deptFilter.style.display = 'none';
     if (heroTitle) heroTitle.innerText = `Welcome, ${currentUser.name}`;
-    if (heroDesc) heroDesc.innerText = 'Track your personal submitted grievances, resolution timelines, and department official remarks.';
+    if (heroDesc) heroDesc.innerText = 'Track your personal submitted grievances, resolution timelines, and student academic profile.';
 
     if (heroActionBtns) {
       heroActionBtns.innerHTML = `
         <button class="btn-primary" onclick="openNewComplaintModal()">
           <i class="fa-solid fa-circle-plus"></i> Submit New Complaint
+        </button>
+        <button class="btn-secondary" onclick="switchTab('student-profile')" style="border-color: rgba(255,255,255,0.4); color: #fff;">
+          <i class="fa-solid fa-id-card"></i> View Profile
         </button>
       `;
     }
@@ -501,6 +525,11 @@ async function handleAuthLogin(e, role) {
     passInput = document.getElementById('landing-admin-pass').value;
   }
 
+  if (!idInput || !passInput) {
+    showToast('Please enter both your identifier and password.', 'warning');
+    return;
+  }
+
   showLoader('Authenticating credentials...');
 
   try {
@@ -509,21 +538,26 @@ async function handleAuthLogin(e, role) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier: idInput, password: passInput, role, department: deptInput })
     });
-    if (res.ok) {
-      const data = await res.json();
+
+    const data = await res.json().catch(() => ({}));
+    hideLoader();
+
+    if (res.ok && data.success) {
       currentUser = data.user;
       if (data.token) localStorage.setItem('scms_jwt_token', data.token);
-      hideLoader();
       saveData();
       renderAppViewState();
-      showToast(`Welcome, ${currentUser.name}! (Authenticated)`, 'success');
+      showToast(`Welcome back, ${currentUser.name}!`, 'success');
+      return;
+    } else {
+      showToast(data.message || 'Invalid credentials. Please verify your email/roll number and password.', 'error');
       return;
     }
   } catch (err) {
-    console.log('Using local authentication fallback:', err.message);
+    console.warn('Backend offline, trying local accounts:', err.message);
   }
 
-  // Fallback to local accounts
+  // Fallback to local accounts ONLY if backend is completely unreachable
   const found = usersData.find(u =>
     (u.email.toLowerCase() === idInput || (u.rollNo && u.rollNo.toLowerCase() === idInput)) &&
     u.role === role &&
@@ -534,25 +568,12 @@ async function handleAuthLogin(e, role) {
 
   if (found) {
     currentUser = found;
+    saveData();
+    renderAppViewState();
+    showToast(`Welcome, ${currentUser.name}! (Offline Mode)`, 'info');
   } else {
-    const nameStr = role === 'student' ? (idInput.includes('@') ? idInput.split('@')[0] : idInput) :
-      role === 'authority' ? `Prof. Officer (${deptInput})` : 'System Administrator';
-
-    currentUser = {
-      id: `USR-${Math.floor(100 + Math.random() * 900)}`,
-      name: nameStr.charAt(0).toUpperCase() + nameStr.slice(1),
-      email: idInput.includes('@') ? idInput : `${idInput}@zeal.edu.in`,
-      rollNo: role === 'student' ? 'STU-2026' : 'STAFF-AUTH',
-      department: deptInput || 'IT',
-      role: role,
-      password: passInput
-    };
-    usersData.push(currentUser);
+    showToast('Login failed: Invalid credentials or account not found.', 'error');
   }
-
-  saveData();
-  renderAppViewState();
-  showToast(`Welcome, ${currentUser.name}! Logged in as ${role.toUpperCase()}`, 'success');
 }
 
 // Student Registration Handler
@@ -564,6 +585,11 @@ async function handleAuthRegister(e) {
   const email = document.getElementById('landing-reg-email').value.trim();
   const password = document.getElementById('landing-reg-pass').value;
 
+  if (!name || !email || !password) {
+    showToast('Please fill out all required fields.', 'warning');
+    return;
+  }
+
   showLoader('Creating your student profile...');
 
   try {
@@ -572,58 +598,47 @@ async function handleAuthRegister(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, email, rollNo, department, password, role: 'student' })
     });
-    if (res.ok) {
-      const data = await res.json();
+
+    const data = await res.json().catch(() => ({}));
+    hideLoader();
+
+    if (res.ok && data.success) {
       currentUser = data.user;
       if (data.token) localStorage.setItem('scms_jwt_token', data.token);
-      hideLoader();
       usersData.push(currentUser);
       saveData();
       renderAppViewState();
       showToast(`Account registered successfully! Welcome, ${currentUser.name}`, 'success');
       return;
+    } else {
+      showToast(data.message || 'Registration failed. Email may already be in use.', 'error');
+      return;
     }
   } catch (err) {
-    console.log('Using local registration fallback:', err.message);
+    console.warn('Network error during registration:', err.message);
   }
 
   hideLoader();
-
-  const newUser = {
-    id: `USR-${Math.floor(100 + Math.random() * 900)}`,
-    name: `${name} (${rollNo})`,
-    email,
-    rollNo,
-    department,
-    role: 'student',
-    password
-  };
-
-  usersData.push(newUser);
-  currentUser = newUser;
-  saveData();
-  renderAppViewState();
-  showToast(`Account created successfully! Logged in as ${currentUser.name}`, 'success');
-}
-
-// Quick 1-Click Evaluation Login
-function quickDemoLogin(role) {
-  if (role === 'student') currentUser = DEFAULT_USERS[0];
-  if (role === 'authority') currentUser = DEFAULT_USERS[1];
-  if (role === 'admin') currentUser = DEFAULT_USERS[2];
-
-  saveData();
-  renderAppViewState();
-  showToast(`Switched account to: ${currentUser.name} (${role.toUpperCase()})`, 'info');
+  showToast('Registration failed: Unable to connect to server.', 'error');
 }
 
 // Logout Handler
 function handleLogout() {
   currentUser = null;
   localStorage.removeItem('scms_jwt_token');
+  localStorage.removeItem('scms_current_user');
   saveData();
   renderAppViewState();
   showToast('Logged out successfully.', 'info');
+}
+
+// Header Profile Click — clicking avatar or name opens profile for students
+function handleProfileHeaderClick() {
+  if (!currentUser) return;
+  if (currentUser.role === 'student') {
+    switchTab('student-profile');
+  }
+  // Authority and Admin: clicking name/avatar has no nav action (they have no profile tab)
 }
 
 // Render User Profile Header Widget
@@ -631,12 +646,23 @@ function renderHeaderUserProfile() {
   const avatarEl = document.getElementById('user-avatar');
   const nameEl = document.getElementById('header-user-name');
   const roleEl = document.getElementById('header-user-role');
+  const userInfoText = document.querySelector('.user-info-text');
 
   if (!currentUser) return;
 
   const initials = currentUser.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'US';
-  avatarEl.innerText = initials;
   nameEl.innerText = currentUser.name;
+
+  if (currentUser.avatar) {
+    avatarEl.style.backgroundImage = `url(${currentUser.avatar})`;
+    avatarEl.style.backgroundSize = 'cover';
+    avatarEl.style.backgroundPosition = 'center';
+    avatarEl.innerText = '';
+  } else {
+    avatarEl.style.backgroundImage = '';
+    avatarEl.style.backgroundSize = '';
+    avatarEl.innerText = initials;
+  }
 
   let roleIcon = 'fa-solid fa-user-graduate';
   let roleLabel = 'Student';
@@ -649,6 +675,13 @@ function renderHeaderUserProfile() {
   }
 
   roleEl.innerHTML = `<i class="${roleIcon}"></i> ${roleLabel}`;
+
+  // Only students get clickable profile nav on avatar/name
+  const isStudent = currentUser.role === 'student';
+  const cursorStyle = isStudent ? 'pointer' : 'default';
+  const titleText = isStudent ? 'Click to view your Profile' : currentUser.name;
+  if (avatarEl) { avatarEl.style.cursor = cursorStyle; avatarEl.title = titleText; }
+  if (userInfoText) { userInfoText.style.cursor = cursorStyle; userInfoText.title = titleText; }
 }
 
 // Main Navigation Tab Switcher
@@ -665,6 +698,8 @@ function switchTab(tabId) {
 
   if (tabId === 'dashboard') {
     renderComplaints();
+  } else if (tabId === 'student-profile') {
+    renderStudentProfile();
   } else if (tabId === 'authority') {
     renderAuthorityView();
   } else if (tabId === 'admin') {
@@ -672,6 +707,509 @@ function switchTab(tabId) {
   }
 
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ====================================================================
+// Student Profile Implementation (Each Student's Verified Profile)
+// ====================================================================
+
+// Render Student Profile View (For Logged in Student)
+function renderStudentProfile() {
+  if (!currentUser) return;
+
+  // Student Initials and Name
+  const initials = currentUser.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'ST';
+  const largeAvatar = document.getElementById('profile-large-avatar');
+
+  const avatarImg = document.getElementById('profile-avatar-img');
+  const avatarInitials = document.getElementById('profile-avatar-initials');
+
+  if (currentUser.avatar && avatarImg) {
+    avatarImg.src = currentUser.avatar;
+    avatarImg.style.display = 'block';
+    if (avatarInitials) avatarInitials.style.display = 'none';
+  } else {
+    if (avatarImg) avatarImg.style.display = 'none';
+    if (avatarInitials) { avatarInitials.style.display = 'block'; avatarInitials.innerText = initials; }
+    if (largeAvatar && !avatarImg) largeAvatar.innerText = initials;
+  }
+
+  const fullNameEl = document.getElementById('profile-student-fullname');
+  if (fullNameEl) fullNameEl.innerText = currentUser.name;
+
+  const rollEl = document.getElementById('profile-meta-roll');
+  if (rollEl) rollEl.innerText = currentUser.rollNo || 'Not Set';
+
+  const emailEl = document.getElementById('profile-meta-email');
+  if (emailEl) emailEl.innerText = currentUser.email || 'Not Set';
+
+  const deptBadge = document.getElementById('profile-badge-dept');
+  if (deptBadge) deptBadge.innerHTML = `<i class="fa-solid fa-graduation-cap"></i> ${getDeptLabel(currentUser.department || 'IT')}`;
+
+  const idBadge = document.getElementById('profile-badge-id');
+  if (idBadge) idBadge.innerHTML = `<i class="fa-solid fa-id-card"></i> ID: ${currentUser.id || currentUser.customId || currentUser._id || 'USR-STU'}`;
+
+  // Filter complaints filed by this student
+  const studentComplaints = complaintsData.filter(c =>
+    (currentUser.email && c.studentEmail && c.studentEmail.toLowerCase() === currentUser.email.toLowerCase()) ||
+    (currentUser.rollNo && c.studentRollNo && c.studentRollNo.toLowerCase() === currentUser.rollNo.toLowerCase()) ||
+    c.userId === currentUser.id ||
+    c.userId === currentUser.customId ||
+    c.userId === currentUser._id
+  );
+
+  // Stats
+  const total = studentComplaints.length;
+  const pending = studentComplaints.filter(c => c.status === 'Pending').length;
+  const progress = studentComplaints.filter(c => c.status === 'In Progress').length;
+  const resolved = studentComplaints.filter(c => c.status === 'Resolved' || c.status === 'Closed').length;
+
+  const stTotal = document.getElementById('prof-stat-total');
+  const stPending = document.getElementById('prof-stat-pending');
+  const stProgress = document.getElementById('prof-stat-progress');
+  const stResolved = document.getElementById('prof-stat-resolved');
+
+  if (stTotal) stTotal.innerText = total;
+  if (stPending) stPending.innerText = pending;
+  if (stProgress) stProgress.innerText = progress;
+  if (stResolved) stResolved.innerText = resolved;
+
+  // Display View Details
+  const dispName = document.getElementById('disp-prof-name');
+  const dispRoll = document.getElementById('disp-prof-roll');
+  const dispDept = document.getElementById('disp-prof-dept');
+  const dispYear = document.getElementById('disp-prof-year');
+  const dispDiv = document.getElementById('disp-prof-div');
+  const dispBatch = document.getElementById('disp-prof-batch');
+  const dispEmail = document.getElementById('disp-prof-email');
+  const dispPhone = document.getElementById('disp-prof-phone');
+  const dispGuardian = document.getElementById('disp-prof-guardian');
+  const dispGuardianPhone = document.getElementById('disp-prof-guardian-phone');
+  const dispAddress = document.getElementById('disp-prof-address');
+
+  if (dispName) dispName.innerText = currentUser.name || 'Not Provided';
+  if (dispRoll) dispRoll.innerText = currentUser.rollNo || 'Not Provided';
+  if (dispDept) dispDept.innerText = getDeptLabel(currentUser.department || 'IT');
+  if (dispYear) dispYear.innerText = currentUser.academicYear || 'TE (Third Year)';
+  if (dispDiv) dispDiv.innerText = currentUser.division ? `Division ${currentUser.division}` : 'Div A';
+  if (dispBatch) dispBatch.innerText = currentUser.batchYear || '2023 - 2027';
+  if (dispEmail) dispEmail.innerText = currentUser.email || 'Not Provided';
+  if (dispPhone) dispPhone.innerText = currentUser.phone || 'Not Provided';
+  if (dispGuardian) dispGuardian.innerText = currentUser.guardianName || 'Not Provided';
+  if (dispGuardianPhone) dispGuardianPhone.innerText = currentUser.guardianPhone || 'Not Provided';
+  if (dispAddress) dispAddress.innerText = currentUser.address || 'Zeal College Campus, Narhe, Pune';
+
+  // Fill Edit Form Fields
+  const editName = document.getElementById('edit-prof-name');
+  const editRoll = document.getElementById('edit-prof-roll');
+  const editDept = document.getElementById('edit-prof-dept');
+  const editYear = document.getElementById('edit-prof-year');
+  const editDiv = document.getElementById('edit-prof-div');
+  const editBatch = document.getElementById('edit-prof-batch');
+  const editEmail = document.getElementById('edit-prof-email');
+  const editPhone = document.getElementById('edit-prof-phone');
+  const editGuardian = document.getElementById('edit-prof-guardian');
+  const editGuardianPhone = document.getElementById('edit-prof-guardian-phone');
+  const editAddress = document.getElementById('edit-prof-address');
+
+  if (editName) editName.value = currentUser.name || '';
+  if (editRoll) editRoll.value = currentUser.rollNo || '';
+  if (editDept) editDept.value = currentUser.department || 'IT';
+  if (editYear) editYear.value = currentUser.academicYear || 'TE (Third Year)';
+  if (editDiv) editDiv.value = currentUser.division || 'A';
+  if (editBatch) editBatch.value = currentUser.batchYear || '2023 - 2027';
+  if (editEmail) editEmail.value = currentUser.email || '';
+  if (editPhone) editPhone.value = currentUser.phone || '';
+  if (editGuardian) editGuardian.value = currentUser.guardianName || '';
+  if (editGuardianPhone) editGuardianPhone.value = currentUser.guardianPhone || '';
+  if (editAddress) editAddress.value = currentUser.address || '';
+
+  // Render recent complaints
+  const listContainer = document.getElementById('profile-complaints-list');
+  if (listContainer) {
+    if (studentComplaints.length === 0) {
+      listContainer.innerHTML = `
+        <div style="text-align: center; padding: 2rem 1rem; color: var(--text-muted); background: var(--bg-surface); border-radius: var(--radius-md); border: 1px dashed var(--border-color);">
+          <i class="fa-solid fa-folder-open" style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.6;"></i>
+          <p>No grievances filed yet.</p>
+          <button class="btn-primary btn-sm" onclick="openNewComplaintModal()" style="margin-top: 0.5rem;">
+            <i class="fa-solid fa-plus"></i> Submit First Complaint
+          </button>
+        </div>
+      `;
+    } else {
+      listContainer.innerHTML = studentComplaints.slice(0, 8).map(c => {
+        const tId = c.ticketId || c.id;
+        return `
+          <div class="profile-ticket-mini-card">
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                <span class="ticket-id" style="font-size: 0.76rem;">${tId}</span>
+                <span class="badge ${getStatusBadgeClass(c.status)}" style="font-size: 0.68rem; padding: 0.15rem 0.45rem;">
+                  <i class="${getStatusIcon(c.status)}"></i> ${c.status}
+                </span>
+                <span class="synopsis-badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem;">
+                  ${c.department}
+                </span>
+              </div>
+              <div style="font-size: 0.86rem; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${escapeHtml(c.title)}
+              </div>
+              <div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 0.15rem;">
+                <i class="fa-regular fa-clock"></i> ${c.createdAtStr || (new Date(c.createdAt).toLocaleDateString())}
+              </div>
+            </div>
+            <button class="btn-secondary btn-sm" onclick="openDetailModal('${tId}')" style="padding: 0.35rem 0.6rem; font-size: 0.76rem;" title="View Ticket Details">
+              <i class="fa-solid fa-eye"></i> View
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+}
+
+// Handle Student Avatar / Profile Photo Upload
+function handleAvatarUpload(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) {
+    showToast('Image too large. Please select a photo under 2 MB.', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    const base64 = e.target.result;
+
+    // Update profile avatar in banner
+    const avatarImg = document.getElementById('profile-avatar-img');
+    const avatarInitials = document.getElementById('profile-avatar-initials');
+    if (avatarImg) { avatarImg.src = base64; avatarImg.style.display = 'block'; }
+    if (avatarInitials) avatarInitials.style.display = 'none';
+
+    // Update header chip avatar
+    const headerAvatar = document.getElementById('user-avatar');
+    if (headerAvatar) {
+      headerAvatar.style.backgroundImage = `url(${base64})`;
+      headerAvatar.style.backgroundSize = 'cover';
+      headerAvatar.style.backgroundPosition = 'center';
+      headerAvatar.innerText = '';
+    }
+
+    // Persist to currentUser and backend
+    if (currentUser) currentUser.avatar = base64;
+    saveData();
+
+    const token = localStorage.getItem('scms_jwt_token');
+    try {
+      await fetch(`${API_BASE_URL}/auth/profile`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ avatar: base64 })
+      });
+    } catch (err) {
+      console.warn('Avatar save to backend failed:', err);
+    }
+
+    showToast('Profile photo updated!', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
+// Toggle View / Edit Mode in Student Profile
+function toggleEditProfileMode(forceState) {
+  const viewDetails = document.getElementById('profile-view-details');
+  const editForm = document.getElementById('profile-edit-form');
+  const indicator = document.getElementById('profile-edit-indicator');
+  const toggleBtn = document.getElementById('btn-toggle-edit-profile');
+
+  if (!viewDetails || !editForm) return;
+
+  const isEditing = forceState !== undefined ? forceState : (viewDetails.style.display !== 'none');
+
+  if (isEditing) {
+    viewDetails.style.display = 'none';
+    editForm.style.display = 'block';
+    if (indicator) indicator.innerText = 'Edit Mode';
+    if (toggleBtn) {
+      toggleBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> Cancel Edit';
+      toggleBtn.classList.replace('btn-primary', 'btn-secondary');
+    }
+  } else {
+    viewDetails.style.display = 'flex';
+    editForm.style.display = 'none';
+    if (indicator) indicator.innerText = 'View Mode';
+    if (toggleBtn) {
+      toggleBtn.innerHTML = '<i class="fa-solid fa-user-pen"></i> Edit Profile';
+      toggleBtn.classList.replace('btn-secondary', 'btn-primary');
+    }
+  }
+}
+
+// Save Student Profile via PUT /api/auth/profile
+async function saveStudentProfile(e) {
+  e.preventDefault();
+  if (!currentUser) return;
+
+  const name = document.getElementById('edit-prof-name').value.trim();
+  const rollNo = document.getElementById('edit-prof-roll').value.trim();
+  const department = document.getElementById('edit-prof-dept').value;
+  const academicYear = document.getElementById('edit-prof-year').value;
+  const division = document.getElementById('edit-prof-div').value.trim();
+  const batchYear = document.getElementById('edit-prof-batch').value.trim();
+  const phone = document.getElementById('edit-prof-phone').value.trim();
+  const guardianName = document.getElementById('edit-prof-guardian').value.trim();
+  const guardianPhone = document.getElementById('edit-prof-guardian-phone').value.trim();
+  const address = document.getElementById('edit-prof-address').value.trim();
+
+  showLoader('Saving profile details...');
+
+  const token = localStorage.getItem('scms_jwt_token');
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/profile`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      body: JSON.stringify({
+        name,
+        rollNo,
+        department,
+        academicYear,
+        division,
+        batchYear,
+        phone,
+        guardianName,
+        guardianPhone,
+        address,
+      })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      currentUser = { ...currentUser, ...data.user };
+    } else {
+      currentUser = {
+        ...currentUser,
+        name,
+        rollNo,
+        department,
+        academicYear,
+        division,
+        batchYear,
+        phone,
+        guardianName,
+        guardianPhone,
+        address,
+      };
+    }
+
+    const uIdx = usersData.findIndex(u => (u.id === currentUser.id || u.email === currentUser.email));
+    if (uIdx !== -1) {
+      usersData[uIdx] = { ...usersData[uIdx], ...currentUser };
+    }
+
+    saveData();
+    hideLoader();
+    toggleEditProfileMode(false);
+    renderStudentProfile();
+    renderHeaderUserProfile();
+    showToast('Student profile updated successfully!', 'success');
+  } catch (err) {
+    console.warn('Profile save warning:', err);
+    currentUser = {
+      ...currentUser,
+      name,
+      rollNo,
+      department,
+      academicYear,
+      division,
+      batchYear,
+      phone,
+      guardianName,
+      guardianPhone,
+      address,
+    };
+    saveData();
+    hideLoader();
+    toggleEditProfileMode(false);
+    renderStudentProfile();
+    renderHeaderUserProfile();
+    showToast('Profile saved successfully.', 'success');
+  }
+}
+
+// View Any Student's Profile (Modal viewer for Authority & Admin)
+async function viewStudentProfile(identifier) {
+  if (!identifier) return;
+
+  showLoader('Loading student profile...');
+  let student = null;
+  let stats = { total: 0, pending: 0, inProgress: 0, resolved: 0 };
+  let recentComplaints = [];
+
+  const token = localStorage.getItem('scms_jwt_token');
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/student/${encodeURIComponent(identifier)}`, {
+      headers: {
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      student = data.student;
+      stats = data.stats;
+      recentComplaints = data.recentComplaints || [];
+    }
+  } catch (err) {
+    console.warn('Student profile fetch fallback:', err);
+  }
+
+  // Fallback to local memory lookup
+  if (!student) {
+    const clean = identifier.toLowerCase();
+    student = usersData.find(u =>
+      (u.id && u.id.toLowerCase() === clean) ||
+      (u.customId && u.customId.toLowerCase() === clean) ||
+      (u.email && u.email.toLowerCase() === clean) ||
+      (u.rollNo && u.rollNo.toLowerCase() === clean) ||
+      (u.name && u.name.toLowerCase() === clean)
+    );
+
+    if (!student) {
+      student = {
+        name: identifier,
+        email: identifier.includes('@') ? identifier : `${identifier}@zeal.edu.in`,
+        rollNo: identifier,
+        department: 'IT',
+        role: 'student',
+        academicYear: 'TE (Third Year)',
+        division: 'A',
+      };
+    }
+
+    const sComp = complaintsData.filter(c =>
+      (student.email && c.studentEmail && c.studentEmail.toLowerCase() === student.email.toLowerCase()) ||
+      (student.rollNo && c.studentRollNo && c.studentRollNo.toLowerCase() === student.rollNo.toLowerCase()) ||
+      (c.studentName && c.studentName.toLowerCase().includes(student.name.toLowerCase()))
+    );
+
+    stats = {
+      total: sComp.length,
+      pending: sComp.filter(c => c.status === 'Pending').length,
+      inProgress: sComp.filter(c => c.status === 'In Progress').length,
+      resolved: sComp.filter(c => c.status === 'Resolved' || c.status === 'Closed').length,
+    };
+    recentComplaints = sComp.slice(0, 6);
+  }
+
+  hideLoader();
+
+  const initials = student.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'ST';
+  const modalBody = document.getElementById('modal-student-profile-body');
+
+  modalBody.innerHTML = `
+    <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+      <!-- Student Header Banner -->
+      <div style="display: flex; align-items: center; gap: 1.25rem; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
+        <div class="student-large-avatar" style="width: 60px; height: 60px; font-size: 1.3rem;">${initials}</div>
+        <div style="flex: 1;">
+          <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
+            <span class="synopsis-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 700;">
+              <i class="fa-solid fa-circle-check"></i> Verified Student
+            </span>
+            <span class="synopsis-badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8;">
+              ${getDeptLabel(student.department || 'IT')}
+            </span>
+          </div>
+          <h3 style="margin: 0; font-size: 1.3rem; color: var(--text-main);">${escapeHtml(student.name)}</h3>
+          <p style="margin: 0.2rem 0 0 0; font-size: 0.85rem; color: var(--text-muted);">
+            Roll No: <strong>${escapeHtml(student.rollNo || '-')}</strong> • Email: <a href="mailto:${student.email}" style="color: var(--primary);">${escapeHtml(student.email)}</a>
+          </p>
+        </div>
+      </div>
+
+      <!-- Academic & Contact Grid -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div class="profile-detail-row">
+          <span class="detail-label"><i class="fa-solid fa-calendar-days"></i> Academic Year</span>
+          <span class="detail-val">${escapeHtml(student.academicYear || 'TE (Third Year)')}</span>
+        </div>
+        <div class="profile-detail-row">
+          <span class="detail-label"><i class="fa-solid fa-users-line"></i> Division</span>
+          <span class="detail-val">${escapeHtml(student.division ? `Div ${student.division}` : 'Div A')}</span>
+        </div>
+        <div class="profile-detail-row">
+          <span class="detail-label"><i class="fa-solid fa-phone"></i> Mobile Phone</span>
+          <span class="detail-val">${escapeHtml(student.phone || 'Not Provided')}</span>
+        </div>
+        <div class="profile-detail-row">
+          <span class="detail-label"><i class="fa-solid fa-timeline"></i> Batch</span>
+          <span class="detail-val">${escapeHtml(student.batchYear || '2023 - 2027')}</span>
+        </div>
+        <div class="profile-detail-row" style="grid-column: span 2;">
+          <span class="detail-label"><i class="fa-solid fa-user-shield"></i> Guardian Contact</span>
+          <span class="detail-val">${escapeHtml(student.guardianName || 'Guardian')}: ${escapeHtml(student.guardianPhone || 'Not Listed')}</span>
+        </div>
+      </div>
+
+      <!-- Grievance KPI Strip -->
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; text-align: center;">
+        <div style="background: var(--bg-surface); padding: 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <div style="font-size: 1.2rem; font-weight: 800; color: var(--primary);">${stats.total}</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">Total Filed</div>
+        </div>
+        <div style="background: var(--bg-surface); padding: 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <div style="font-size: 1.2rem; font-weight: 800; color: #f59e0b;">${stats.pending}</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">Pending</div>
+        </div>
+        <div style="background: var(--bg-surface); padding: 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <div style="font-size: 1.2rem; font-weight: 800; color: #0ea5e9;">${stats.inProgress}</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">In Progress</div>
+        </div>
+        <div style="background: var(--bg-surface); padding: 0.6rem; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <div style="font-size: 1.2rem; font-weight: 800; color: #10b981;">${stats.resolved}</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">Resolved</div>
+        </div>
+      </div>
+
+      <!-- Recent Complaints by this student -->
+      <div>
+        <h4 style="font-size: 0.95rem; margin: 0 0 0.5rem 0; color: var(--text-main);">
+          <i class="fa-solid fa-list-check"></i> Student Grievance Records (${recentComplaints.length})
+        </h4>
+        ${recentComplaints.length === 0 ? '<p style="font-size: 0.82rem; color: var(--text-muted);">No complaints recorded for this student.</p>' : `
+          <div style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 220px; overflow-y: auto;">
+            ${recentComplaints.map(c => `
+              <div class="profile-ticket-mini-card">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.2rem;">
+                    <span class="ticket-id" style="font-size: 0.72rem;">${c.ticketId || c.id}</span>
+                    <span class="badge ${getStatusBadgeClass(c.status)}" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">
+                      ${c.status}
+                    </span>
+                  </div>
+                  <div style="font-size: 0.82rem; font-weight: 600; color: var(--text-main);">${escapeHtml(c.title)}</div>
+                </div>
+                <button class="btn-secondary btn-sm" onclick="closeModal('modal-student-profile'); openDetailModal('${c.ticketId || c.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.72rem;">
+                  Manage
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('modal-student-profile').classList.add('active');
 }
 
 // Admin Subnavigation Switcher
@@ -1000,7 +1538,7 @@ function renderAuthorityView() {
           </div>
           <h3 class="card-title">${escapeHtml(item.title)}</h3>
           <p style="font-size: 0.8rem; color: var(--text-dark); margin-bottom: 0.4rem;">
-            <i class="fa-solid fa-user"></i> Lodged by: <strong>${item.studentName}</strong> • ${item.createdAtStr || item.createdAt}
+            <i class="fa-solid fa-user"></i> Lodged by: <span class="student-link-badge" onclick="event.stopPropagation(); viewStudentProfile('${item.userId || item.studentEmail || item.studentRollNo}')" title="Click to view Student Profile"><strong>${item.studentName}</strong></span> • ${item.createdAtStr || item.createdAt}
           </p>
           <p class="card-desc">${escapeHtml(item.description)}</p>
         </div>
@@ -1073,7 +1611,7 @@ function renderAdminTable() {
     return `
       <tr>
         <td><strong class="ticket-id">${ticketId}</strong></td>
-        <td>${escapeHtml(item.studentName)}</td>
+        <td><span class="student-link-badge" onclick="viewStudentProfile('${item.userId || item.studentEmail || item.studentRollNo}')" title="Click to view Student Profile"><strong>${escapeHtml(item.studentName)}</strong></span></td>
         <td><span style="font-size: 0.82rem; background: var(--bg-surface); padding: 0.2rem 0.5rem; border-radius: 4px;">${item.category}</span></td>
         <td>${getDeptLabel(item.department)}</td>
         <td>${item.createdAtStr || item.createdAt}</td>
@@ -1143,15 +1681,19 @@ function renderAdminUsers() {
       roleBadge = '<span class="badge" style="background:rgba(139,92,246,0.15);color:#c084fc;"><i class="fa-solid fa-shield-halved"></i> Admin</span>';
     }
 
+    const isStudent = u.role === 'student';
     return `
       <tr>
         <td><code>${userId}</code></td>
-        <td><strong>${escapeHtml(u.name)}</strong></td>
+        <td>
+          ${isStudent ? `<span class="student-link-badge" onclick="viewStudentProfile('${userId}')" title="View Student Profile"><strong>${escapeHtml(u.name)}</strong></span>` : `<strong>${escapeHtml(u.name)}</strong>`}
+        </td>
         <td>${escapeHtml(u.email)}</td>
         <td>${roleBadge}</td>
         <td>${u.department || 'IT'} / ${u.rollNo || '-'}</td>
         <td><span class="badge badge-resolved"><i class="fa-solid fa-circle-check"></i> Active</span></td>
         <td>
+          ${isStudent ? `<button class="btn-secondary btn-sm" onclick="viewStudentProfile('${userId}')" title="View Student Profile" style="color:var(--primary); margin-right: 0.35rem;"><i class="fa-solid fa-id-card"></i></button>` : ''}
           <button class="btn-secondary btn-sm" onclick="deleteAdminUser('${userId}')" style="color:#ef4444;" title="Delete User">
             <i class="fa-solid fa-trash"></i>
           </button>
